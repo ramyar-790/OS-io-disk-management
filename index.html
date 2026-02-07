@@ -1,0 +1,1860 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>I/O & Disk Management (Disk Scheduling)</title>
+
+    <style>
+      :root {
+        --bg: #020617;
+        --bg2: #0b1220;
+        --card: #0f172a;
+        --glass: rgba(15, 23, 42, 0.78);
+        --border: rgba(148, 163, 184, 0.18);
+        --text: #f8fafc;
+        --muted: #94a3b8;
+        --accent: #38bdf8;
+        --accent2: #a78bfa;
+        --green: #22c55e;
+        --yellow: #facc15;
+        --orange: #fb923c;
+        --red: #ef4444;
+        --shadow: 0 0 25px rgba(0, 0, 0, 0.55);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background:
+          radial-gradient(
+            circle at 15% 15%,
+            rgba(56, 189, 248, 0.18),
+            transparent 55%
+          ),
+          radial-gradient(
+            circle at 80% 30%,
+            rgba(167, 139, 250, 0.15),
+            transparent 55%
+          ),
+          radial-gradient(
+            circle at 40% 90%,
+            rgba(34, 197, 94, 0.1),
+            transparent 60%
+          ),
+          linear-gradient(135deg, var(--bg), var(--bg2));
+        color: var(--text);
+        overflow-x: hidden;
+      }
+
+      /* HEADER */
+      header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        z-index: 9999;
+        padding: 14px 18px;
+        background: rgba(2, 6, 23, 0.72);
+        border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+        backdrop-filter: blur(14px);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 1.05rem;
+        font-weight: 1000;
+        letter-spacing: 0.4px;
+        color: var(--accent);
+      }
+
+      .brand span {
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+
+      .pills {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .pill {
+        padding: 7px 12px;
+        border-radius: 999px;
+        font-weight: 900;
+        font-size: 0.82rem;
+        border: 1px solid rgba(56, 189, 248, 0.25);
+        background: rgba(56, 189, 248, 0.12);
+        color: var(--accent);
+      }
+
+      .pill.purple {
+        border: 1px solid rgba(167, 139, 250, 0.25);
+        background: rgba(167, 139, 250, 0.12);
+        color: var(--accent2);
+      }
+
+      .pill.green {
+        border: 1px solid rgba(34, 197, 94, 0.25);
+        background: rgba(34, 197, 94, 0.12);
+        color: var(--green);
+      }
+
+      main {
+        padding-top: 90px;
+      }
+
+      /* SLIDES */
+      .slide {
+        display: none;
+        min-height: 100vh;
+        padding: 55px 55px;
+        animation: fade 0.65s ease;
+      }
+
+      .slide.active {
+        display: block;
+      }
+
+      @keyframes fade {
+        from {
+          opacity: 0;
+          transform: translateY(25px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 900px) {
+        .slide {
+          padding: 45px 18px;
+        }
+      }
+
+      /* TYPOGRAPHY */
+      h2 {
+        margin-top: 0;
+        margin-bottom: 10px;
+        font-size: 2.05rem;
+        font-weight: 1000;
+        color: var(--accent);
+      }
+
+      h3 {
+        margin: 0 0 10px;
+        font-size: 1.3rem;
+        font-weight: 1000;
+        color: var(--accent2);
+      }
+
+      p {
+        max-width: 1150px;
+        font-size: 1.08rem;
+        line-height: 1.9;
+        color: #e2e8f0;
+      }
+
+      .small {
+        max-width: 1150px;
+        font-size: 0.95rem;
+        line-height: 1.85;
+        color: var(--muted);
+      }
+
+      /* CARDS */
+      .grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+        max-width: 1150px;
+        margin-top: 16px;
+      }
+
+      .grid3 {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 18px;
+        max-width: 1150px;
+        margin-top: 16px;
+      }
+
+      @media (max-width: 980px) {
+        .grid2,
+        .grid3 {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .card {
+        background: var(--glass);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 18px 20px;
+        box-shadow: var(--shadow);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          120deg,
+          rgba(56, 189, 248, 0.14),
+          rgba(167, 139, 250, 0.1),
+          rgba(34, 197, 94, 0.06)
+        );
+        opacity: 0.95;
+        pointer-events: none;
+      }
+
+      .card > * {
+        position: relative;
+      }
+
+      .tag {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-weight: 1000;
+        font-size: 0.82rem;
+        margin-bottom: 12px;
+        border: 1px solid rgba(250, 204, 21, 0.22);
+        background: rgba(250, 204, 21, 0.12);
+        color: var(--yellow);
+      }
+
+      .tag.green {
+        border: 1px solid rgba(34, 197, 94, 0.25);
+        background: rgba(34, 197, 94, 0.12);
+        color: var(--green);
+      }
+
+      .tag.purple {
+        border: 1px solid rgba(167, 139, 250, 0.25);
+        background: rgba(167, 139, 250, 0.12);
+        color: var(--accent2);
+      }
+
+      .tag.orange {
+        border: 1px solid rgba(251, 146, 60, 0.25);
+        background: rgba(251, 146, 60, 0.12);
+        color: var(--orange);
+      }
+
+      .tag.red {
+        border: 1px solid rgba(239, 68, 68, 0.25);
+        background: rgba(239, 68, 68, 0.12);
+        color: var(--red);
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 18px;
+        max-width: 1150px;
+        line-height: 1.85;
+        font-size: 1.05rem;
+        color: #e2e8f0;
+      }
+
+      li {
+        margin-bottom: 7px;
+      }
+
+      kbd {
+        padding: 4px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        background: rgba(15, 23, 42, 0.7);
+        font-weight: 1000;
+        font-size: 0.82rem;
+        color: var(--yellow);
+      }
+
+      .divider {
+        border: none;
+        border-top: 1px solid rgba(148, 163, 184, 0.18);
+        margin: 22px 0;
+        max-width: 1150px;
+      }
+
+      /* TABLES */
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        max-width: 1150px;
+        margin-top: 12px;
+      }
+
+      th,
+      td {
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        padding: 12px;
+        text-align: center;
+        font-weight: 900;
+      }
+
+      th {
+        background: rgba(2, 6, 23, 0.85);
+        color: var(--accent);
+      }
+
+      td {
+        color: #e2e8f0;
+      }
+
+      /* CONTROLS */
+      .controls {
+        position: fixed;
+        bottom: 18px;
+        right: 18px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        z-index: 9999;
+      }
+
+      button {
+        border: none;
+        padding: 13px 18px;
+        border-radius: 16px;
+        font-weight: 1000;
+        cursor: pointer;
+        transition: 0.2s;
+        background: var(--yellow);
+        color: #020617;
+        box-shadow: 0 0 18px rgba(0, 0, 0, 0.45);
+      }
+
+      button:hover {
+        transform: translateY(-2px) scale(1.04);
+      }
+
+      button.secondary {
+        background: rgba(30, 41, 59, 0.85);
+        color: #e2e8f0;
+        border: 1px solid rgba(148, 163, 184, 0.22);
+      }
+
+      button.voice {
+        background: var(--accent);
+        color: #020617;
+      }
+
+      button.restart {
+        background: var(--accent2);
+        color: #020617;
+      }
+
+      button.danger {
+        background: var(--red);
+        color: white;
+      }
+
+      .toast {
+        position: fixed;
+        top: 90px;
+        right: 20px;
+        padding: 10px 14px;
+        border-radius: 14px;
+        font-weight: 900;
+        background: rgba(2, 6, 23, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        backdrop-filter: blur(12px);
+        box-shadow: var(--shadow);
+        color: var(--yellow);
+        opacity: 0;
+        transform: translateY(-10px);
+        transition: 0.3s;
+        z-index: 99999;
+      }
+
+      .toast.show {
+        opacity: 1;
+        transform: translateY(0px);
+      }
+
+      /* DISK VISUAL */
+      .diagram {
+        margin-top: 16px;
+        max-width: 1150px;
+        padding: 16px;
+        border-radius: 20px;
+        background: rgba(15, 23, 42, 0.65);
+        border: 1px solid rgba(56, 189, 248, 0.22);
+        box-shadow: 0 0 22px rgba(56, 189, 248, 0.12);
+        overflow: auto;
+      }
+
+      .diskTrack {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+
+      .trackBlock {
+        width: 44px;
+        height: 44px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 1000;
+        font-size: 0.85rem;
+        background: rgba(30, 41, 59, 0.9);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        color: #e2e8f0;
+        transition: 0.3s;
+      }
+
+      .trackBlock.request {
+        background: rgba(56, 189, 248, 0.22);
+        border: 1px solid rgba(56, 189, 248, 0.35);
+        color: var(--accent);
+        transform: scale(1.06);
+      }
+
+      .trackBlock.head {
+        background: rgba(250, 204, 21, 0.2);
+        border: 1px solid rgba(250, 204, 21, 0.35);
+        color: var(--yellow);
+        transform: scale(1.1);
+      }
+
+      .trackBlock.visited {
+        background: rgba(34, 197, 94, 0.16);
+        border: 1px solid rgba(34, 197, 94, 0.3);
+        color: var(--green);
+      }
+
+      .trackBlock.jump {
+        background: rgba(239, 68, 68, 0.14);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: var(--red);
+      }
+
+      .outputBox {
+        margin-top: 14px;
+        padding: 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(34, 197, 94, 0.25);
+        background: rgba(34, 197, 94, 0.06);
+        max-width: 1150px;
+      }
+
+      .outputBox span {
+        font-weight: 1000;
+        color: var(--green);
+      }
+
+      .warningBox {
+        margin-top: 14px;
+        padding: 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(251, 146, 60, 0.25);
+        background: rgba(251, 146, 60, 0.06);
+        max-width: 1150px;
+      }
+
+      .dangerBox {
+        margin-top: 14px;
+        padding: 14px;
+        border-radius: 16px;
+        border: 1px solid rgba(239, 68, 68, 0.25);
+        background: rgba(239, 68, 68, 0.06);
+        max-width: 1150px;
+      }
+
+      .footerNote {
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: 0.95rem;
+        max-width: 1150px;
+      }
+
+      /* PROGRESS BAR */
+      .progressWrap {
+        width: 100%;
+        max-width: 1150px;
+        height: 12px;
+        background: rgba(148, 163, 184, 0.14);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        border-radius: 999px;
+        overflow: hidden;
+        margin-top: 16px;
+      }
+
+      .progressFill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(
+          90deg,
+          var(--accent),
+          var(--accent2),
+          var(--green)
+        );
+        border-radius: 999px;
+        transition: 0.4s;
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <div class="brand">
+        <h1>CO6 – I/O & Disk Management</h1>
+        <span>Disk Scheduling Algorithms </span>
+      </div>
+
+      <div class="pills">
+        <div class="pill" id="slideCount">Slide 1 / 1</div>
+        <div class="pill purple" id="voiceState">Voice: ON</div>
+        <div class="pill green" id="modeState">Mode: Study</div>
+      </div>
+    </header>
+
+    <div class="toast" id="toast">Hello</div>
+
+    <main>
+      <!-- SLIDE 1 -->
+      <section
+        class="slide active"
+        data-voice="
+Welcome to os course Input Output and Disk Management.
+In this full guide you will learn disk input output basics,
+seek time, latency, transfer time, disk queue,
+and all major disk scheduling algorithms.
+You will also learn performance efficiency and reliability.
+Use next previous restart buttons.
+You can also use arrow keys.
+"
+      >
+        <h2>Disk I/O & Disk Scheduling</h2>
+
+        <p>
+          Welcome in this chapter OS
+          course**. It covers **Disk I/O basics**, all **Disk Scheduling
+          Algorithms**, and also **Performance + Reliability**.
+        </p>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="tag green">Why this topic is important?</div>
+            <p class="small">
+              Disk is one of the slowest devices compared to CPU. So OS must
+              handle disk requests smartly.
+            </p>
+            <ul>
+              <li>CPU is very fast</li>
+              <li>Disk is slow mechanical device</li>
+              <li>Head movement cost is huge</li>
+              <li>Scheduling reduces waiting time</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="tag purple">Real Life Analogy</div>
+            <p class="small">
+              Imagine one delivery boy in Bengaluru traffic. He has many
+              deliveries at different locations. If he goes randomly, time
+              waste. If he plans route, he saves fuel and time.
+            </p>
+            <ul>
+              <li>Disk head = delivery boy</li>
+              <li>Tracks = different streets</li>
+              <li>Requests = parcels to deliver</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="progressWrap">
+          <div class="progressFill" id="progressFill"></div>
+        </div>
+
+        <p class="footerNote">
+          Keyboard controls: <kbd>→</kbd> Next | <kbd>←</kbd> Prev |
+          <kbd>R</kbd> Restart | <kbd>Space</kbd> Voice Toggle
+        </p>
+      </section>
+
+      <!-- SLIDE 2 -->
+      <section
+        class="slide"
+        data-voice="
+Now we learn disk I O basics.
+Disk input output means reading and writing data from disk.
+The main delay happens because disk is mechanical.
+Seek time and rotational latency are the biggest reasons.
+Now learn important terms.
+"
+      >
+        <h2>Disk I/O Basics (Core Concepts)</h2>
+
+        <p>
+          Disk I/O means: **CPU wants data**, OS sends request to disk, disk
+          head moves, finds the sector, and returns data.
+        </p>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="tag green">Disk Structure Terms</div>
+            <ul>
+              <li><b>Platter:</b> circular plate inside disk</li>
+              <li><b>Track:</b> ring-shaped path on platter</li>
+              <li><b>Sector:</b> small part of track</li>
+              <li><b>Cylinder:</b> group of same track across platters</li>
+              <li><b>Disk Head:</b> reads/writes data</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="tag purple">Difficult Words Meaning</div>
+            <ul>
+              <li><b>Seek Time:</b> head moving time</li>
+              <li><b>Rotational Latency:</b> waiting for rotation</li>
+              <li><b>Transfer Time:</b> actual data transfer time</li>
+              <li><b>Disk Queue:</b> pending requests list</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <h3>Disk I/O Flow Diagram</h3>
+          <table>
+            <tr>
+              <th>Step</th>
+              <th>What Happens</th>
+              <th>Simple Meaning</th>
+            </tr>
+            <tr>
+              <td>1</td>
+              <td>Process requests file data</td>
+              <td>User opens file</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>OS creates disk I/O request</td>
+              <td>OS asks disk to fetch</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>Request enters disk queue</td>
+              <td>Waiting line is created</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>Disk scheduler chooses request</td>
+              <td>Decides who goes first</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>Head moves to track</td>
+              <td>Seek happens</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td>Wait for correct sector</td>
+              <td>Rotational latency</td>
+            </tr>
+            <tr>
+              <td>7</td>
+              <td>Read/write data transfer</td>
+              <td>Transfer time</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="warningBox">
+          <b>Key idea:</b> Seek Time is usually the biggest delay. That is why
+          disk scheduling tries to reduce head movement.
+        </div>
+
+        <div class="card">
+          <div class="tag orange">Student Question</div>
+          <p class="small">
+            Which is costlier: seek time or transfer time?<br />
+            <b>Answer:</b> Seek time is costlier because mechanical head
+            movement is slow.
+          </p>
+        </div>
+      </section>
+
+      <!-- SLIDE 3 -->
+      <section
+        class="slide"
+        data-voice="
+Now we start disk scheduling algorithms.
+We will use one common example.
+Queue is 98 183 37 122 14 124 65 67.
+Initial head is 53.
+Disk range is 0 to 199.
+We will calculate total head movement.
+Now remember absolute difference trick.
+"
+      >
+        <h2>Common Example (Used for All Algorithms)</h2>
+
+        <div class="card">
+          <div class="tag green">Given Input</div>
+          <p class="small">
+            <b>Request Queue:</b> 98, 183, 37, 122, 14, 124, 65, 67<br />
+            <b>Initial Head Position:</b> 53<br />
+            <b>Disk Range:</b> 0 to 199
+          </p>
+        </div>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="tag purple">Golden Trick (Exam)</div>
+            <ul>
+              <li>Write the service order</li>
+              <li>Calculate movement = |next - current|</li>
+              <li>Add all values</li>
+              <li>Total = Total Head Movement</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="tag orange">Important Tip</div>
+            <p class="small">
+              Disk scheduling questions are <b>pure math + logic</b>. If order
+              is correct, answer is correct.
+            </p>
+            <p class="small">Wrong order = wrong movement.</p>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <h3>Track Range Visualization</h3>
+          <div class="diskTrack" id="baseTrack"></div>
+          <div class="outputBox">
+            <span>Note:</span> Blue blocks are requests, Yellow is head start.
+          </div>
+        </div>
+      </section>
+
+      <!-- FCFS -->
+      <section
+        class="slide"
+        data-voice="
+Now FCFS algorithm.
+FCFS means first come first serve.
+Requests are served in the same order they arrive.
+It is simplest but not efficient.
+Now we see order, calculation table and animation.
+"
+      >
+        <h2>FCFS (First Come First Serve)</h2>
+
+        <p>
+          FCFS is the easiest disk scheduling algorithm. OS serves requests in
+          the same order as they appear in queue.
+        </p>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="tag green">Rules</div>
+            <ul>
+              <li>Serve requests in queue order</li>
+              <li>No optimization</li>
+              <li>No starvation</li>
+              <li>Fair but may be slow</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="tag purple">Service Order</div>
+            <p class="small">
+              Start: 53<br />
+              Order: 98 → 183 → 37 → 122 → 14 → 124 → 65 → 67
+            </p>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <h3>FCFS Calculation Table</h3>
+          <table id="fcfsTable"></table>
+          <div class="outputBox" id="fcfsResult"></div>
+        </div>
+
+        <div class="diagram">
+          <h3>FCFS Live Animated Head Movement</h3>
+          <div class="diskTrack" id="fcfsTrack"></div>
+          <div class="outputBox">
+            <span>How to read animation:</span> Yellow = current head, Green =
+            visited.
+          </div>
+        </div>
+
+        <div class="warningBox">
+          <b>Problem:</b> FCFS can cause long seek movement because it doesn't
+          care about distance.
+        </div>
+
+        <div class="card">
+          <div class="tag orange">Practice Question</div>
+          <p class="small">
+            If a far request comes early, what happens in FCFS?<br />
+            <b>Answer:</b> Disk head must travel far, increasing total seek
+            time.
+          </p>
+        </div>
+      </section>
+
+      <!-- SSTF -->
+      <section
+        class="slide"
+        data-voice="
+Now SSTF algorithm.
+SSTF means shortest seek time first.
+It chooses the nearest request from current head position.
+This reduces movement.
+But starvation can happen for far requests.
+Now see order, table and animation.
+"
+      >
+        <h2>SSTF (Shortest Seek Time First)</h2>
+
+        <p>
+          SSTF always selects the request with **minimum distance** from current
+          head position.
+        </p>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="tag green">Rules</div>
+            <ul>
+              <li>Pick closest request to current head</li>
+              <li>Update head position</li>
+              <li>Repeat until all served</li>
+              <li>Minimizes seek time</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="tag red">Disadvantage</div>
+            <p class="small">
+              <b>Starvation:</b> A far request may never get served if closer
+              requests keep coming.
+            </p>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <h3>SSTF Calculation Table</h3>
+          <table id="sstfTable"></table>
+          <div class="outputBox" id="sstfResult"></div>
+        </div>
+
+        <div class="diagram">
+          <h3>SSTF Live Animated Head Movement</h3>
+          <div class="diskTrack" id="sstfTrack"></div>
+          <div class="outputBox">
+            <span>Tip:</span> SSTF feels like "nearest neighbor strategy".
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="tag orange">Practice Question</div>
+          <p class="small">
+            Why SSTF gives less head movement than FCFS?<br />
+            <b>Answer:</b> Because it always selects the nearest track request.
+          </p>
+        </div>
+      </section>
+
+      <!-- SCAN -->
+      <section
+        class="slide"
+        data-voice="
+Now SCAN algorithm.
+SCAN is also called elevator algorithm.
+The head moves in one direction and serves all requests.
+When it reaches the end, it reverses direction.
+This gives better fairness than SSTF.
+Now see order and animation.
+"
+      >
+        <h2>SCAN (Elevator Algorithm)</h2>
+
+        <p>
+          SCAN works like an elevator: head moves in one direction serving
+          requests, then reverses.
+        </p>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="tag green">Rules</div>
+            <ul>
+              <li>Choose direction (left or right)</li>
+              <li>Serve all requests in that direction</li>
+              <li>Go to disk end (0 or 199)</li>
+              <li>Reverse direction and serve remaining</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="tag purple">Direction Assumption</div>
+            <p class="small">
+              In this guide, we assume direction is <b>Right</b> first. (53 →
+              199 then reverse)
+            </p>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <h3>SCAN Calculation Table</h3>
+          <table id="scanTable"></table>
+          <div class="outputBox" id="scanResult"></div>
+        </div>
+
+        <div class="diagram">
+          <h3>SCAN Live Animated Head Movement</h3>
+          <div class="diskTrack" id="scanTrack"></div>
+          <div class="outputBox">
+            <span>SCAN Meaning:</span> Head sweeps like a scanner.
+          </div>
+        </div>
+
+        <div class="warningBox">
+          <b>Exam Trick:</b> SCAN always touches end of disk even if no request
+          there.
+        </div>
+      </section>
+
+      <!-- C-SCAN -->
+      <section
+        class="slide"
+        data-voice="
+Now C-SCAN algorithm.
+C-SCAN means circular scan.
+The head moves only in one direction.
+When it reaches the end, it jumps back to start.
+It does not serve requests while returning.
+This gives uniform waiting time.
+Now see calculation and animation.
+"
+      >
+        <h2>C-SCAN (Circular SCAN)</h2>
+
+        <p>
+          C-SCAN is like SCAN, but it moves in one direction only. It gives
+          **uniform waiting time**.
+        </p>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="tag green">Rules</div>
+            <ul>
+              <li>Move only one direction</li>
+              <li>Serve all requests in that direction</li>
+              <li>Go to disk end (199)</li>
+              <li>Jump to start (0)</li>
+              <li>Continue again</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="tag purple">Difficult Word Meaning</div>
+            <p class="small">
+              <b>Circular:</b> moves like a cycle. End → Start → End.
+            </p>
+            <p class="small">Jump movement is counted as head movement.</p>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <h3>C-SCAN Calculation Table</h3>
+          <table id="cscanTable"></table>
+          <div class="outputBox" id="cscanResult"></div>
+        </div>
+
+        <div class="diagram">
+          <h3>C-SCAN Live Animated Head Movement</h3>
+          <div class="diskTrack" id="cscanTrack"></div>
+          <div class="outputBox">
+            <span>Red jump block:</span> indicates circular jump.
+          </div>
+        </div>
+
+        <div class="warningBox">
+          <b>Key idea:</b> C-SCAN provides fairness because every request waits
+          similar time.
+        </div>
+      </section>
+
+      <!-- LOOK -->
+      <section
+        class="slide"
+        data-voice="
+Now LOOK algorithm.
+LOOK is improved SCAN.
+Instead of going to disk end always,
+it goes only until the last request in that direction.
+Then it reverses.
+This reduces unnecessary movement.
+Now see calculation and animation.
+"
+      >
+        <h2>LOOK (Improved SCAN)</h2>
+
+        <p>
+          LOOK is a smart version of SCAN. It does not go to end if no request
+          exists there.
+        </p>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="tag green">Rules</div>
+            <ul>
+              <li>Move in one direction</li>
+              <li>Serve all requests in that direction</li>
+              <li>Stop at last request (not disk end)</li>
+              <li>Reverse direction</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="tag purple">Why name LOOK?</div>
+            <p class="small">
+              The head "looks" ahead and checks last request, so it avoids extra
+              travel.
+            </p>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <h3>LOOK Calculation Table</h3>
+          <table id="lookTable"></table>
+          <div class="outputBox" id="lookResult"></div>
+        </div>
+
+        <div class="diagram">
+          <h3>LOOK Live Animated Head Movement</h3>
+          <div class="diskTrack" id="lookTrack"></div>
+        </div>
+
+        <div class="card">
+          <div class="tag orange">Student Question</div>
+          <p class="small">
+            Why LOOK is better than SCAN?<br />
+            <b>Answer:</b> LOOK avoids unnecessary travel to 0 or 199 if no
+            request exists.
+          </p>
+        </div>
+      </section>
+
+      <!-- C-LOOK -->
+      <section
+        class="slide"
+        data-voice="
+Now C-LOOK algorithm.
+C-LOOK is improved C-SCAN.
+It moves only one direction.
+But it does not go to disk end.
+It goes only to last request and jumps to first request.
+This reduces movement and gives fairness.
+Now see calculation and animation.
+"
+      >
+        <h2>C-LOOK (Improved C-SCAN)</h2>
+
+        <p>
+          C-LOOK is one of the best algorithms in practical systems. It is fast
+          and fair.
+        </p>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="tag green">Rules</div>
+            <ul>
+              <li>Move in one direction only</li>
+              <li>Stop at last request</li>
+              <li>Jump to first request</li>
+              <li>Continue servicing</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="tag purple">Key Difference</div>
+            <p class="small">
+              C-SCAN goes to disk end always. C-LOOK stops at last request and
+              jumps.
+            </p>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <h3>C-LOOK Calculation Table</h3>
+          <table id="clookTable"></table>
+          <div class="outputBox" id="clookResult"></div>
+        </div>
+
+        <div class="diagram">
+          <h3>C-LOOK Live Animated Head Movement</h3>
+          <div class="diskTrack" id="clookTrack"></div>
+        </div>
+
+        <div class="warningBox">
+          <b>Exam Tip:</b> If question asks "uniform waiting + less movement" →
+          C-LOOK is best answer.
+        </div>
+      </section>
+
+      <!-- PERFORMANCE -->
+      <section
+        class="slide"
+        data-voice="
+Now we learn I O performance and efficiency.
+Disk performance depends on seek time, rotational latency and transfer time.
+We can reduce delays using buffering, caching, and scheduling.
+Now see performance diagram and explanation.
+"
+      >
+        <h2>I/O Performance & Efficiency</h2>
+
+        <p>
+          Disk performance is mainly affected by three delays:
+          <b>Seek time</b>, <b>Rotational latency</b>, and <b>Transfer time</b>.
+        </p>
+
+        <div class="grid3">
+          <div class="card">
+            <div class="tag green">Seek Time</div>
+            <p class="small">
+              Time taken for disk head to move to correct track. Usually the
+              biggest cost.
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="tag orange">Rotational Latency</div>
+            <p class="small">
+              Waiting time until desired sector rotates under head. Like waiting
+              for correct bus stop to come.
+            </p>
+          </div>
+
+          <div class="card">
+            <div class="tag purple">Transfer Time</div>
+            <p class="small">
+              Time to actually read/write data. Usually smaller compared to
+              seek.
+            </p>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <h3>Performance Improvement Diagram</h3>
+          <table>
+            <tr>
+              <th>Technique</th>
+              <th>Meaning</th>
+              <th>How it improves performance</th>
+            </tr>
+            <tr>
+              <td>Disk Scheduling</td>
+              <td>Reordering requests</td>
+              <td>Reduces seek time</td>
+            </tr>
+            <tr>
+              <td>Buffering</td>
+              <td>Temporary memory storage</td>
+              <td>Reduces I/O wait time</td>
+            </tr>
+            <tr>
+              <td>Caching</td>
+              <td>Store frequent data in RAM</td>
+              <td>Less disk access</td>
+            </tr>
+            <tr>
+              <td>Spooling</td>
+              <td>Queue output jobs</td>
+              <td>Better device utilization</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="tag orange">Student Question</div>
+          <p class="small">
+            Why caching is faster?<br />
+            <b>Answer:</b> RAM is much faster than disk, so repeated data access
+            becomes instant.
+          </p>
+        </div>
+
+        <div class="warningBox">
+          <b>Key Point:</b> OS improves I/O efficiency by reducing disk usage
+          and improving request order.
+        </div>
+      </section>
+
+      <!-- RELIABILITY -->
+      <section
+        class="slide"
+        data-voice="
+Now recovery and reliability.
+Disk can fail due to power loss, hardware failure, or bad sectors.
+Operating systems use backup, journaling, RAID and redundancy.
+Now learn concepts clearly.
+"
+      >
+        <h2>Recovery & Reliability (Disk Safety)</h2>
+
+        <p>
+          Data is valuable. Disk failures can cause permanent loss. So OS uses
+          reliability mechanisms.
+        </p>
+
+        <div class="grid2">
+          <div class="card">
+            <div class="tag green">Common Disk Problems</div>
+            <ul>
+              <li><b>Bad Sectors:</b> damaged disk area</li>
+              <li><b>Power Failure:</b> sudden shutdown corrupts data</li>
+              <li><b>Head Crash:</b> physical head damage</li>
+              <li><b>File Corruption:</b> incorrect file content</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <div class="tag purple">Protection Methods</div>
+            <ul>
+              <li><b>Backup:</b> copy data in another place</li>
+              <li><b>RAID:</b> multiple disks to prevent loss</li>
+              <li><b>Journaling:</b> write log before actual write</li>
+              <li><b>ECC:</b> detects and corrects bit errors</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="diagram">
+          <h3>Journaling (Simple Diagram)</h3>
+          <table>
+            <tr>
+              <th>Step</th>
+              <th>What OS does</th>
+              <th>Why it helps?</th>
+            </tr>
+            <tr>
+              <td>1</td>
+              <td>Write change into journal (log)</td>
+              <td>Backup plan ready</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>Write change to actual disk file</td>
+              <td>Real update happens</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>Mark journal entry as complete</td>
+              <td>Recovery becomes easy</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="warningBox">
+          <b>Real Life Analogy:</b> Journaling is like writing rough notes
+          before final writing. If you forget, rough copy helps.
+        </div>
+
+        <div class="card">
+          <div class="tag orange">Student Question</div>
+          <p class="small">
+            Why RAID is used?<br />
+            <b>Answer:</b> To store data in multiple disks, so failure of one
+            disk does not destroy data.
+          </p>
+        </div>
+      </section>
+
+      <!-- COMPARISON -->
+      <section
+        class="slide"
+        data-voice="
+Now final comparison.
+We compare algorithms on fairness, movement, starvation, and complexity.
+Remember no single algorithm is best always.
+It depends on workload.
+Now see summary table.
+"
+      >
+        <h2>Final Comparison Table (All Algorithms)</h2>
+
+        <div class="diagram">
+          <h3>Algorithm Comparison</h3>
+          <table>
+            <tr>
+              <th>Algorithm</th>
+              <th>Min Movement?</th>
+              <th>Fair?</th>
+              <th>Starvation?</th>
+              <th>Special Feature</th>
+            </tr>
+            <tr>
+              <td>FCFS</td>
+              <td>❌</td>
+              <td>✅</td>
+              <td>❌</td>
+              <td>Simple queue order</td>
+            </tr>
+            <tr>
+              <td>SSTF</td>
+              <td>✅</td>
+              <td>⚠️</td>
+              <td>✅</td>
+              <td>Nearest request first</td>
+            </tr>
+            <tr>
+              <td>SCAN</td>
+              <td>⚠️</td>
+              <td>✅</td>
+              <td>❌</td>
+              <td>Elevator movement</td>
+            </tr>
+            <tr>
+              <td>C-SCAN</td>
+              <td>⚠️</td>
+              <td>✅</td>
+              <td>❌</td>
+              <td>Uniform waiting</td>
+            </tr>
+            <tr>
+              <td>LOOK</td>
+              <td>✅</td>
+              <td>✅</td>
+              <td>❌</td>
+              <td>Stops at last request</td>
+            </tr>
+            <tr>
+              <td>C-LOOK</td>
+              <td>✅</td>
+              <td>✅</td>
+              <td>❌</td>
+              <td>Uniform + no disk end travel</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="card">
+          <div class="tag green">Golden Exam Tricks</div>
+          <ul>
+            <li>
+              If question asks <b>minimum seek time</b> → SSTF / LOOK / C-LOOK
+            </li>
+            <li>
+              If question asks <b>uniform waiting time</b> → C-SCAN / C-LOOK
+            </li>
+            <li>If question asks <b>simple + fair</b> → FCFS</li>
+            <li>If question says <b>elevator</b> → SCAN</li>
+          </ul>
+        </div>
+
+        <div class="dangerBox">
+          <b>Important:</b> In SCAN / LOOK, direction must be clearly mentioned.
+          If direction not given, you must assume (often right direction).
+        </div>
+      </section>
+
+      <!-- PRACTICE -->
+      <section
+        class="slide"
+        data-voice="
+Now practice time.
+Solve the following problem by yourself.
+Queue is 55 58 60 70 18 90.
+Head is 50.
+Try solve FCFS and SSTF.
+Then check solved answer below.
+"
+      >
+        <h2>Practice Questions (Try Yourself)</h2>
+
+        <div class="card">
+          <div class="tag green">Practice Question 1</div>
+          <p class="small">
+            Request Queue: <b>55, 58, 60, 70, 18, 90</b><br />
+            Initial Head: <b>50</b><br /><br />
+            Find Total Head Movement for:
+          </p>
+          <ul>
+            <li>FCFS</li>
+            <li>SSTF</li>
+            <li>LOOK (Right direction)</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="tag orange">Solved Output</div>
+          <p class="small">
+            FCFS: 50→55→58→60→70→18→90<br />
+            Total = 5+3+2+10+52+72 = <b>144</b><br /><br />
+
+            SSTF: 50→55→58→60→70→90→18<br />
+            Total = 5+3+2+10+20+72 = <b>112</b><br /><br />
+
+            LOOK (Right): 50→55→58→60→70→90→18<br />
+            Total = same as SSTF = <b>112</b>
+          </p>
+        </div>
+
+        <div class="warningBox">
+          <b>Tip:</b> Always write order first. Then do absolute difference.
+        </div>
+      </section>
+
+      <!-- END -->
+      <section
+        class="slide"
+        data-voice="
+Congratulations.
+You have completed I O and Disk Scheduling algorithms.
+Now you can solve exam questions with confidence.
+Remember the order is the key.
+Thank you.
+"
+      >
+        <h2>Final Summary</h2>
+
+        <div class="card">
+          <div class="tag green">You Completed</div>
+          <ul>
+            <li>Disk I/O basics</li>
+            <li>Seek time, latency, transfer time</li>
+            <li>FCFS, SSTF, SCAN, C-SCAN, LOOK, C-LOOK</li>
+            <li>Calculation tables + animations</li>
+            <li>Performance and efficiency concepts</li>
+            <li>Recovery and reliability overview</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="tag purple">One Line Master Trick</div>
+          <p class="small">
+            Disk scheduling = <b>Order + Absolute Difference</b>. If your order
+            is correct, your answer will always be correct.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <div class="controls">
+      <button class="secondary" onclick="prevSlide()">◀ Prev</button>
+      <button onclick="nextSlide()">Next ▶</button>
+      <button class="restart" onclick="restartSlides()">Restart ⟳</button>
+      <button class="voice" onclick="toggleVoice()">Voice ON/OFF 🎙️</button>
+      <button class="danger" onclick="stopVoice()">Stop 🔇</button>
+    </div>
+
+    <script>
+      /* ===============================
+   GLOBAL SETTINGS
+================================ */
+      let slides = document.querySelectorAll(".slide");
+      let index = 0;
+      let voiceEnabled = true;
+      let currentUtterance = null;
+
+      const requestQueue = [98, 183, 37, 122, 14, 124, 65, 67];
+      const headStart = 53;
+      const diskMin = 0;
+      const diskMax = 199;
+
+      /* ===============================
+   UI HELPERS
+================================ */
+      function toast(msg) {
+        const t = document.getElementById("toast");
+        t.innerText = msg;
+        t.classList.add("show");
+        setTimeout(() => t.classList.remove("show"), 1500);
+      }
+
+      function updateHeader() {
+        document.getElementById("slideCount").innerText =
+          `Slide ${index + 1} / ${slides.length}`;
+        document.getElementById("voiceState").innerText = voiceEnabled
+          ? "Voice: ON"
+          : "Voice: OFF";
+
+        let progress = ((index + 1) / slides.length) * 100;
+        let pf = document.getElementById("progressFill");
+        if (pf) pf.style.width = progress + "%";
+      }
+
+      /* ===============================
+   VOICE SYSTEM
+================================ */
+      function speak(text) {
+        if (!voiceEnabled) return;
+        if (!text) return;
+
+        speechSynthesis.cancel();
+        currentUtterance = new SpeechSynthesisUtterance(text);
+        currentUtterance.rate = 0.92;
+        currentUtterance.pitch = 1;
+        currentUtterance.volume = 1;
+        speechSynthesis.speak(currentUtterance);
+      }
+
+      function stopVoice() {
+        speechSynthesis.cancel();
+        toast("Voice stopped");
+      }
+
+      function toggleVoice() {
+        voiceEnabled = !voiceEnabled;
+        updateHeader();
+        if (!voiceEnabled) {
+          stopVoice();
+          toast("Voice OFF");
+        } else {
+          speak(slides[index].dataset.voice);
+          toast("Voice ON");
+        }
+      }
+
+      /* ===============================
+   SLIDE NAVIGATION
+================================ */
+      function showSlide(i) {
+        slides.forEach((s) => s.classList.remove("active"));
+        slides[i].classList.add("active");
+        updateHeader();
+        speak(slides[i].dataset.voice);
+
+        if (i === 2) drawBaseTrack();
+        if (slides[i].querySelector("#fcfsTable")) runFCFS();
+        if (slides[i].querySelector("#sstfTable")) runSSTF();
+        if (slides[i].querySelector("#scanTable")) runSCAN();
+        if (slides[i].querySelector("#cscanTable")) runCSCAN();
+        if (slides[i].querySelector("#lookTable")) runLOOK();
+        if (slides[i].querySelector("#clookTable")) runCLOOK();
+      }
+
+      function nextSlide() {
+        index++;
+        if (index >= slides.length) index = slides.length - 1;
+        showSlide(index);
+      }
+
+      function prevSlide() {
+        index--;
+        if (index < 0) index = 0;
+        showSlide(index);
+      }
+
+      function restartSlides() {
+        index = 0;
+        showSlide(index);
+        toast("Restarted");
+      }
+
+      /* ===============================
+   KEYBOARD CONTROLS
+================================ */
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowRight") nextSlide();
+        if (e.key === "ArrowLeft") prevSlide();
+        if (e.key.toLowerCase() === "r") restartSlides();
+
+        if (e.code === "Space") {
+          e.preventDefault();
+          toggleVoice();
+        }
+      });
+
+      /* ===============================
+   DISK TRACK DRAWING
+================================ */
+      function buildTrack(containerId) {
+        let container = document.getElementById(containerId);
+        container.innerHTML = "";
+
+        // we show 0..200 as 0..20 blocks (step=10)
+        for (let i = 0; i <= 20; i++) {
+          let val = i * 10;
+          let b = document.createElement("div");
+          b.className = "trackBlock";
+          b.innerText = val;
+          container.appendChild(b);
+        }
+      }
+
+      function markRequests(containerId, requests) {
+        let container = document.getElementById(containerId);
+        let blocks = container.querySelectorAll(".trackBlock");
+
+        function idx(val) {
+          return Math.round(val / 10);
+        }
+
+        requests.forEach((r) => {
+          let id = idx(r);
+          if (blocks[id]) blocks[id].classList.add("request");
+        });
+      }
+
+      function markHead(containerId, head) {
+        let container = document.getElementById(containerId);
+        let blocks = container.querySelectorAll(".trackBlock");
+
+        function idx(val) {
+          return Math.round(val / 10);
+        }
+        let id = idx(head);
+
+        blocks.forEach((b) => b.classList.remove("head"));
+        if (blocks[id]) blocks[id].classList.add("head");
+      }
+
+      function markVisited(containerId, value) {
+        let container = document.getElementById(containerId);
+        let blocks = container.querySelectorAll(".trackBlock");
+
+        function idx(val) {
+          return Math.round(val / 10);
+        }
+        let id = idx(value);
+
+        if (blocks[id]) blocks[id].classList.add("visited");
+      }
+
+      function markJump(containerId, value) {
+        let container = document.getElementById(containerId);
+        let blocks = container.querySelectorAll(".trackBlock");
+
+        function idx(val) {
+          return Math.round(val / 10);
+        }
+        let id = idx(value);
+
+        if (blocks[id]) blocks[id].classList.add("jump");
+      }
+
+      function drawBaseTrack() {
+        buildTrack("baseTrack");
+        markRequests("baseTrack", requestQueue);
+        markHead("baseTrack", headStart);
+      }
+
+      /* ===============================
+   MATH HELPERS
+================================ */
+      function abs(x) {
+        return Math.abs(x);
+      }
+
+      function calcTotal(order) {
+        let total = 0;
+        for (let i = 0; i < order.length - 1; i++) {
+          total += abs(order[i + 1] - order[i]);
+        }
+        return total;
+      }
+
+      function buildTable(tableId, order) {
+        let t = document.getElementById(tableId);
+        t.innerHTML = "";
+
+        let header = `
+    <tr>
+      <th>Step</th>
+      <th>From</th>
+      <th>To</th>
+      <th>Movement</th>
+    </tr>
+  `;
+        t.innerHTML += header;
+
+        for (let i = 0; i < order.length - 1; i++) {
+          let from = order[i];
+          let to = order[i + 1];
+          let move = abs(to - from);
+
+          t.innerHTML += `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${from}</td>
+        <td>${to}</td>
+        <td>|${to} - ${from}| = ${move}</td>
+      </tr>
+    `;
+        }
+      }
+
+      function animateTrack(containerId, order, hasJump = false) {
+        buildTrack(containerId);
+        markRequests(containerId, requestQueue);
+
+        let step = 0;
+        let timer = setInterval(() => {
+          if (step >= order.length) {
+            clearInterval(timer);
+            return;
+          }
+
+          markHead(containerId, order[step]);
+          markVisited(containerId, order[step]);
+
+          if (hasJump && step > 0) {
+            let prev = order[step - 1];
+            let curr = order[step];
+
+            // jump case: diskMax -> diskMin
+            if (prev === diskMax && curr === diskMin) {
+              markJump(containerId, prev);
+              markJump(containerId, curr);
+            }
+          }
+
+          step++;
+        }, 550);
+      }
+
+      /* ===============================
+   ALGORITHMS
+================================ */
+      function runFCFS() {
+        let order = [headStart, ...requestQueue];
+
+        buildTable("fcfsTable", order);
+
+        let total = calcTotal(order);
+        document.getElementById("fcfsResult").innerHTML =
+          `<span>Total Head Movement:</span> ${total} tracks <br>
+     <span>Order:</span> ${order.join(" → ")}`;
+
+        animateTrack("fcfsTrack", order);
+      }
+
+      function runSSTF() {
+        let pending = [...requestQueue];
+        let head = headStart;
+        let order = [head];
+
+        while (pending.length) {
+          pending.sort((a, b) => abs(a - head) - abs(b - head));
+          let next = pending.shift();
+          order.push(next);
+          head = next;
+        }
+
+        buildTable("sstfTable", order);
+
+        let total = calcTotal(order);
+        document.getElementById("sstfResult").innerHTML =
+          `<span>Total Head Movement:</span> ${total} tracks <br>
+     <span>Order:</span> ${order.join(" → ")}`;
+
+        animateTrack("sstfTrack", order);
+      }
+
+      function runSCAN() {
+        let head = headStart;
+
+        let left = requestQueue.filter((x) => x < head).sort((a, b) => b - a);
+        let right = requestQueue.filter((x) => x >= head).sort((a, b) => a - b);
+
+        // SCAN Right direction: go to max always then reverse
+        let order = [head, ...right, diskMax, ...left];
+
+        buildTable("scanTable", order);
+
+        let total = calcTotal(order);
+        document.getElementById("scanResult").innerHTML =
+          `<span>Total Head Movement:</span> ${total} tracks <br>
+     <span>Order:</span> ${order.join(" → ")}`;
+
+        animateTrack("scanTrack", order);
+      }
+
+      function runCSCAN() {
+        let head = headStart;
+
+        let left = requestQueue.filter((x) => x < head).sort((a, b) => a - b);
+        let right = requestQueue.filter((x) => x >= head).sort((a, b) => a - b);
+
+        // C-SCAN: go right, reach end, jump to start, continue
+        let order = [head, ...right, diskMax, diskMin, ...left];
+
+        buildTable("cscanTable", order);
+
+        let total = calcTotal(order);
+        document.getElementById("cscanResult").innerHTML =
+          `<span>Total Head Movement:</span> ${total} tracks <br>
+     <span>Order:</span> ${order.join(" → ")}`;
+
+        animateTrack("cscanTrack", order, true);
+      }
+
+      function runLOOK() {
+        let head = headStart;
+
+        let left = requestQueue.filter((x) => x < head).sort((a, b) => b - a);
+        let right = requestQueue.filter((x) => x >= head).sort((a, b) => a - b);
+
+        // LOOK: does not go to diskMax if no request
+        let order = [head, ...right, ...left];
+
+        buildTable("lookTable", order);
+
+        let total = calcTotal(order);
+        document.getElementById("lookResult").innerHTML =
+          `<span>Total Head Movement:</span> ${total} tracks <br>
+     <span>Order:</span> ${order.join(" → ")}`;
+
+        animateTrack("lookTrack", order);
+      }
+
+      function runCLOOK() {
+        let head = headStart;
+
+        let left = requestQueue.filter((x) => x < head).sort((a, b) => a - b);
+        let right = requestQueue.filter((x) => x >= head).sort((a, b) => a - b);
+
+        // C-LOOK: go right until last request, then jump to first request
+        let order = [head, ...right, ...left];
+
+        buildTable("clookTable", order);
+
+        let total = calcTotal(order);
+        document.getElementById("clookResult").innerHTML =
+          `<span>Total Head Movement:</span> ${total} tracks <br>
+     <span>Order:</span> ${order.join(" → ")}`;
+
+        animateTrack("clookTrack", order, true);
+      }
+
+      /* ===============================
+   START
+================================ */
+      showSlide(0);
+    </script>
+  </body>
+</html>
